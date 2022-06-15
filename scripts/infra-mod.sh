@@ -91,14 +91,19 @@ if [[ "${platform}" == "vsphere" ]]; then
     VS_SERVER=$(echo "${vsconfig}" | grep "vCenter" | cut -d":" -f2 | xargs)
 else
     region=$(echo "${installconfig}" | grep "region:" | cut -d":" -f2  | xargs)
+    RHCOS_URL="https://raw.githubusercontent.com/openshift/installer/release-${majorVer}/data/data/rhcos.json"
+    if echo $majorVer | grep -E '4.[1-9][0-9]' > /dev/null ; then
+        RHCOS_URL="https://raw.githubusercontent.com/openshift/installer/release-${majorVer}/data/data/coreos/rhcos.json"
+    fi
+
     if [[ "$platform" == "aws"  ]]; then
-        image=$(curl -k -s https://raw.githubusercontent.com/openshift/installer/release-${majorVer}/data/data/rhcos.json | grep -A1 "${region}" | grep hvm | cut -d'"' -f4)
+        image=$(curl -k -s $RHCOS_URL | grep -A1 "${region}" | grep hvm | cut -d'"' -f4)
         elif [[ "$platform" == "azure"  ]]; then
-        image=$(curl -k -s https://raw.githubusercontent.com/openshift/installer/release-${majorVer}/data/data/rhcos.json | grep -A3 "azure" | grep '"image"' | cut -d'"' -f4)
+        image=$(curl -k -s $RHCOS_URL | grep -A3 "azure" | grep '"image"' | cut -d'"' -f4)
         elif [[ "$platform" == "gcp"  ]]; then
-        image=$(curl -k -s https://raw.githubusercontent.com/openshift/installer/release-${majorVer}/data/data/rhcos.json | grep -A3 "gcp" | grep '"image"' | cut -d'"' -f4)
+        image=$(curl -k -s $RHCOS_URL | grep -A3 "gcp" | grep '"image"' | cut -d'"' -f4)
         elif [[ "$platform" == "ibmcloud"  ]]; then
-        image=$(curl -k -s https://raw.githubusercontent.com/openshift/installer/release-${majorVer}/data/data/rhcos.json | grep -A3 "ibmcloud" | grep '"path"' | cut -d'"' -f4)
+        image=$(curl -k -s $RHCOS_URL | grep -A3 "ibmcloud" | grep '"path"' | cut -d'"' -f4)
     fi
 fi
 # platform=$(oc get -o jsonpath='{.status.platform}' infrastructure cluster | tr [:upper:] [:lower:])
@@ -136,6 +141,7 @@ sed -i.bak '/namespace-openshift-storage.yaml/s/^#//g' kustomization.yaml
 sed -i.bak '/storage.yaml/s/^#//g' kustomization.yaml
 rm kustomization.yaml.bak
 # edit argocd/storage.yaml
+
 newChannel="stable-${majorVer}"
 defsc=$(oc get sc | grep default | awk '{print $1}')
 if [[ "$platform" == "aws" ]]; then
@@ -148,6 +154,14 @@ if [[ "$platform" == "aws" ]]; then
     storageClass=${defsc:-"ibmc-vpc-block-10iops-tier"}
 fi
 
+
+if echo $majorVer | grep -E '4.[6-8]' > /dev/null ; then
+    storageChart="ocs-operator"
+elif echo $majorVer | grep -E '4.9|4.[1-9][0-9]|4.[1-9][0-9][0-9]' > /dev/null ; then
+    storageChart="odf-operator"
+fi
+
+sed -i.bak "s#\${STORAGE_CHART_NAME}#${storageChart}#" argocd/storage.yaml
 sed -i.bak "s#\${CHANNEL}#${newChannel}#" argocd/storage.yaml
 sed -i.bak "s#\${STORCLASS}#${storageClass}#" argocd/storage.yaml
 rm argocd/storage.yaml.bak
@@ -157,12 +171,10 @@ popd
 
 pushd "${SCRIPTDIR}/.."
 
-${SCRIPTDIR}/sync-manifests.sh
+source ${SCRIPTDIR}/sync-manifests.sh
 
-git add .
-
-git commit -m "Editing infrastructure definitions"
-
-git push origin
+# git add .
+# git commit -m "Editing infrastructure definitions"
+# git push origin
 
 popd
